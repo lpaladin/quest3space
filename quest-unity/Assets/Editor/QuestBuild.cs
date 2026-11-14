@@ -156,10 +156,11 @@ public static class QuestBuild
                     for(int i=0;i<materials.Length;i++){
                         var original=materials[i];if(!original)continue;
                         string materialPath="Assets/Scanner/ControllerMaterials/"+original.name.Replace(" (Instance)","")+"-depth.mat";
-                        if(original.shader.name=="Quest3Space/VertexColor"){original.SetFloat("_IgnoreEnvironmentDepth",1);EditorUtility.SetDirty(original);continue;}
+                        if(original.shader.name=="Quest3Space/VertexColor"){original.SetFloat("_OpaqueTexture",1);original.SetFloat("_IgnoreEnvironmentDepth",1);EditorUtility.SetDirty(original);continue;}
                         var converted=AssetDatabase.LoadAssetAtPath<Material>(materialPath);
                         if(!converted){converted=new Material(Shader.Find("Quest3Space/VertexColor"));AssetDatabase.CreateAsset(converted,materialPath);}
                         converted.SetFloat("_UseTexture",1);
+                        converted.SetFloat("_OpaqueTexture",1);
                         converted.SetFloat("_IgnoreEnvironmentDepth",1);
                         converted.mainTexture=original.HasProperty("_BaseMap")?original.GetTexture("_BaseMap"):original.mainTexture;
                         converted.SetColor("_Tint",original.HasProperty("_BaseColor")?original.GetColor("_BaseColor"):Color.white);

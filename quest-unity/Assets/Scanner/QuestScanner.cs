@@ -31,7 +31,8 @@ public class QuestScanner : MonoBehaviour
     private string message="Connect PC, then place scan box around the object.";
     private Vector3 origin=new Vector3(0,1,1);
     private Quaternion boxRotation=Quaternion.identity;
-    private bool boxFollowing;
+    private bool boxFollowing,boxScaling;
+    private float boxScaleStartDistance,boxScaleStartSide;
     private PlaneRegion planeRegion;
     private bool planeGripHeld;
     private float side=.3f;
@@ -83,6 +84,7 @@ public class QuestScanner : MonoBehaviour
     private bool recenterControlsPending;
     private OVRSpatialAnchor fallbackWorldAnchor;
     private OVRControllerHelper[] controllerVisuals;
+    private bool CanResizeBox=>WorldCoordinatesReady&&boxPlaced&&string.IsNullOrEmpty(session)&&string.IsNullOrEmpty(completed)&&!creating&&!finishing&&!resetting&&!planeRegion.Active;
     private bool WorldCoordinatesReady=>worldLock&&worldLock.IsWorldLockActive&&Time.unscaledTime>=trackingSettleUntil;
 
     void Start()
@@ -172,7 +174,7 @@ public class QuestScanner : MonoBehaviour
         Button(settingsPanel,"Depth occlusion: Soft / Hard / Off",CycleOcclusion);
         details=Label(settingsPanel,"",18);details.GetComponent<LayoutElement>().preferredHeight=100;
         settings.gameObject.SetActive(false);
-        Label(panel,"LGrip: hand preview  |  LT: reference points",19);
+        Label(panel,"Before scan: RGrip move | LGrip resize. After: LGrip preview",19);
         ray=new GameObject("Controller ray",typeof(LineRenderer)).GetComponent<LineRenderer>();ray.positionCount=2;ray.startWidth=.002f;ray.endWidth=.001f;ray.material=new Material(VertexColorShader);ray.material.SetFloat("_ZWrite",0);ray.material.renderQueue=3002;ray.startColor=ray.endColor=new Color(.3f,1,.8f);
         box=new GameObject("Scan volume",typeof(LineRenderer)).GetComponent<LineRenderer>();box.material=new Material(VertexColorShader);box.material.SetFloat("_ZWrite",0);box.material.renderQueue=3000;box.startWidth=box.endWidth=.002f;box.startColor=box.endColor=Color.cyan;box.useWorldSpace=true;
         var mg=new GameObject("PC reconstructed model",typeof(MeshFilter),typeof(MeshRenderer));model=mg.GetComponent<MeshFilter>();modelRenderer=mg.GetComponent<MeshRenderer>();modelRenderer.material=new Material(VertexColorShader);
@@ -216,7 +218,7 @@ public class QuestScanner : MonoBehaviour
         planePlaceButton.gameObject.SetActive(editing&&openPlanes);
         planeDeleteButton.gameObject.SetActive(editing&&planes&&planeRegion.Count>0);
         startButton.gameObject.SetActive(!scanning&&!finishing&&!creating&&!resetting&&(active||(editing&&boxPlaced&&!openPlanes)));
-        startButton.interactable=connected&&CameraAccess.IsPlaying&&DepthManager.IsDepthAvailable&&imageVerified&&!boxFollowing&&WorldCoordinatesReady;
+        startButton.interactable=connected&&CameraAccess.IsPlaying&&DepthManager.IsDepthAvailable&&imageVerified&&!boxFollowing&&!boxScaling&&WorldCoordinatesReady;
         placeButton.interactable=planeStartButton.interactable=planePlaceButton.interactable=WorldCoordinatesReady;
         pauseButton.gameObject.SetActive(scanning&&!finishing);
         finishButton.gameObject.SetActive(active&&!finishing&&!creating&&!resetting);
@@ -228,7 +230,7 @@ public class QuestScanner : MonoBehaviour
         float fraction=Mathf.Min(1,Mathf.Min(acceptedFrames/(float)RecommendedFrames,coverageDirections/(float)RecommendedDirections));
         FillProgress(mainProgressFill,fraction);
         string phase=finishing?"Saving":creating?"Starting":scanning?"Scanning":!string.IsNullOrEmpty(completed)?"Finished":active?"Paused":openPlanes?"Place planes":"Ready";
-        mainProgress.text=openPlanes?$"Planes {planeRegion.Count}/16 max\nPlace until region closes":$"{phase}  {Mathf.FloorToInt(fraction*100)}% of target\nFrames {acceptedFrames}/{RecommendedFrames}  |  Views {coverageDirections}/{RecommendedDirections}";
+        mainProgress.text=CanResizeBox?$"Box {side*100:F0} cm\nRGrip: move / rotate  |  LGrip: resize":openPlanes?$"Planes {planeRegion.Count}/16 max\nPlace until region closes":$"{phase}  {Mathf.FloorToInt(fraction*100)}% of target\nFrames {acceptedFrames}/{RecommendedFrames}  |  Views {coverageDirections}/{RecommendedDirections}";
     }
     private void PositionPreview()
     {
@@ -284,7 +286,7 @@ public class QuestScanner : MonoBehaviour
     private void StartPlaneRegion(){if(!WorldCoordinatesReady){message="Wait for world lock.";return;}if(!string.IsNullOrEmpty(session)||creating){message="Finish current scan first.";return;}completed="";boxFollowing=false;boxPlaced=false;planeRegion.StartRegion();origin=planeRegion.Seed;message=planeRegion.Hint;}
     private void PlaceRegionPlane(){if(!WorldCoordinatesReady||!planeRegion.Active||!string.IsNullOrEmpty(session)||creating)return;bool closed=planeRegion.Place();message=planeRegion.Hint;if(closed){origin=planeRegion.Center;side=Mathf.Max(planeRegion.Extent.x,Mathf.Max(planeRegion.Extent.y,planeRegion.Extent.z));boxRotation=Quaternion.identity;boxPlaced=true;StartCoroutine(Begin());}RebuildVertices();}
     private void DeleteRegionPlane(){if(!planeRegion.Active||!string.IsNullOrEmpty(session)||creating){message="Finish current scan before changing its region.";return;}planeRegion.Delete();boxPlaced=planeRegion.Closed;if(boxPlaced){origin=planeRegion.Center;side=Mathf.Max(planeRegion.Extent.x,Mathf.Max(planeRegion.Extent.y,planeRegion.Extent.z));}message=planeRegion.Hint;RebuildVertices();}
-    private void PlaceBox(){if(!WorldCoordinatesReady){message="Wait for world lock.";return;}if(!string.IsNullOrEmpty(session)||creating){message="Finish the active scan before moving its box.";return;}planeRegion.Clear();completed="";origin=Rig.rightControllerAnchor.position+Rig.rightControllerAnchor.forward*.25f;boxRotation=Rig.rightControllerAnchor.rotation;boxPlaced=true;DrawBox(!boxFollowing);message="Box follows right hand while grip held; release to lock, A to scan.";}
+    private void PlaceBox(){if(!WorldCoordinatesReady){message="Wait for world lock.";return;}if(!string.IsNullOrEmpty(session)||creating){message="Finish the active scan before moving its box.";return;}planeRegion.Clear();completed="";origin=Rig.rightControllerAnchor.position+Rig.rightControllerAnchor.forward*.25f;boxRotation=Rig.rightControllerAnchor.rotation;boxPlaced=true;DrawBox(!boxFollowing);message="RGrip: move / rotate. LGrip: resize. Release both, A to scan.";}
     private void DrawBox(bool rebuildPoints=true){if(!box)return;var p=new Vector3[8];for(int i=0;i<8;i++)p[i]=origin+boxRotation*(new Vector3((i&1)==0?-.5f:.5f,(i&2)==0?-.5f:.5f,(i&4)==0?-.5f:.5f)*side);int[] e={0,1,3,2,0,4,5,1,5,7,3,7,6,2,6,4};box.positionCount=e.Length;box.SetPositions(e.Select(i=>p[i]).ToArray());if(rebuildPoints)RebuildVertices();}
 
     private void UpdateScanFeedback()
@@ -302,6 +304,7 @@ public class QuestScanner : MonoBehaviour
         if(direction.sqrMagnitude>.001f)progressPanel.rotation=Quaternion.LookRotation(direction,Vector3.up);
         if(Time.unscaledTime<nextFeedback)return;nextFeedback=Time.unscaledTime+.25f;
         if(planeRegion.Active&&!planeRegion.Closed){FillProgress(worldProgressFill,0);scanProgress.text=$"PLANE REGION | {planeRegion.Count}/16 planes\nDouble-sided until closed\nRGrip release / A: place | B: delete\n"+planeRegion.Hint;scanProgress.color=Color.cyan;return;}
+        if(CanResizeBox){FillProgress(worldProgressFill,0);scanProgress.text=$"BOX {side*100:F0} cm\nRGrip: move / rotate\nLGrip: resize";scanProgress.color=Color.cyan;return;}
         int percent=Mathf.FloorToInt(100*Mathf.Min(1,Mathf.Min(acceptedFrames/(float)RecommendedFrames,coverageDirections/(float)RecommendedDirections)));
         string phase=blocked?"CHECK CONNECTION / SENSORS":finishing?"SAVING":scanning?"CAPTURING":!string.IsNullOrEmpty(completed)?"FINISHED":"PAUSED / READY";
         FillProgress(worldProgressFill,percent/100f);
@@ -337,7 +340,8 @@ public class QuestScanner : MonoBehaviour
         if(hapticActive&&Time.unscaledTime>=hapticUntil){OVRInput.SetControllerVibration(0,0,OVRInput.Controller.RTouch);hapticActive=false;}
         if(pressedButton&&Time.unscaledTime>=pressedUntil){var released=pressedButton;pressedButton=null;PaintButton(released);}
         bool held=OVRInput.Get(OVRInput.Button.PrimaryHandTrigger,OVRInput.Controller.LTouch);
-        if(held!=overlayHeld){overlayHeld=held;PositionPreview();Debug.Log("QUEST3SPACE_OVERLAY held="+held+" origin="+previewOrigin);}
+        bool handPreview=held&&(!string.IsNullOrEmpty(session)||!string.IsNullOrEmpty(completed));
+        if(handPreview!=overlayHeld){overlayHeld=handPreview;PositionPreview();Debug.Log("QUEST3SPACE_OVERLAY held="+handPreview+" origin="+previewOrigin);}
         verticesHeld=OVRInput.Get(OVRInput.Axis1D.PrimaryIndexTrigger,OVRInput.Controller.LTouch)>.15f;
         worldPoints.SetHeld(verticesHeld&&WorldCoordinatesReady);
         UpdateScanFeedback();
@@ -352,6 +356,13 @@ public class QuestScanner : MonoBehaviour
         else if(rightHeld&&WorldCoordinatesReady&&string.IsNullOrEmpty(session)&&!creating&&!resetting){boxFollowing=true;PlaceBox();}
         else if(boxFollowing){boxFollowing=false;RebuildVertices();Debug.Log("QUEST3SPACE_BOX_LOCK position="+origin+" rotation="+boxRotation);}
         else if(rightHeld&&OVRInput.GetDown(OVRInput.Button.PrimaryHandTrigger,OVRInput.Controller.RTouch))message="Finish the active scan before moving its box.";
+        bool resizing=held&&CanResizeBox;
+        if(resizing){
+            float distance=Vector3.Distance(Rig.leftControllerAnchor.position,origin);
+            if(!boxScaling){boxScaleStartDistance=Mathf.Max(.05f,distance);boxScaleStartSide=side;boxScaling=true;Debug.Log("QUEST3SPACE_BOX_RESIZE start side="+side);}
+            float target=Mathf.Clamp(boxScaleStartSide*distance/boxScaleStartDistance,.1f,.5f);
+            side=Mathf.Lerp(side,target,1-Mathf.Exp(-20*Time.unscaledDeltaTime));DrawBox(false);
+        }else if(boxScaling){boxScaling=false;RebuildVertices();Debug.Log("QUEST3SPACE_BOX_RESIZE locked side="+side);}
         var r=new Ray(Rig.rightControllerAnchor.position,Rig.rightControllerAnchor.forward);Vector3 end=r.GetPoint(2);
         if(planeRegion.Active)planeRegion.Point(r);
         Button pointed=null;
@@ -405,7 +416,7 @@ public class QuestScanner : MonoBehaviour
         if(!imageVerified){message="Camera pixels not verified yet; wait for RGB ready.";yield break;}
         if(!boxPlaced){message="Place the scan box first using the right grip.";yield break;}
         if(planeRegion.Active&&!planeRegion.Closed){message="Place planes until a finite region encloses the start point.";yield break;}
-        if(boxFollowing||OVRInput.Get(OVRInput.Button.PrimaryHandTrigger,OVRInput.Controller.RTouch)){message="Release RIGHT GRIP to lock the box before scanning.";yield break;}
+        if(boxFollowing||boxScaling||OVRInput.Get(OVRInput.Button.PrimaryHandTrigger,OVRInput.Controller.RTouch)||(!planeRegion.Active&&OVRInput.Get(OVRInput.Button.PrimaryHandTrigger,OVRInput.Controller.LTouch))){message="Release BOTH GRIPS to lock the box before scanning.";yield break;}
         if(!string.IsNullOrEmpty(session)){scanning=true;yield break;}
         creating=true;
         PlayerPrefs.SetFloat("boxQx",boxRotation.x);PlayerPrefs.SetFloat("boxQy",boxRotation.y);PlayerPrefs.SetFloat("boxQz",boxRotation.z);PlayerPrefs.SetFloat("boxQw",boxRotation.w);
