@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quest3Space · 物件扫描</title>
+<style>
+:root{color-scheme:dark;font-family:Segoe UI,Microsoft YaHei,sans-serif;background:#10151c;color:#e7eef7}*{box-sizing:border-box}body{margin:0}header{padding:20px 28px;border-bottom:1px solid #293440;display:flex;justify-content:space-between;gap:16px;align-items:center}h1{font-size:23px;margin:0}h1 span{color:#56d6bb;font-weight:400}small,.muted{color:#9caec3}main{display:grid;grid-template-columns:310px 1fr;gap:18px;padding:20px;max-width:1600px;margin:auto}section{background:#19212c;border:1px solid #2d3949;border-radius:14px;padding:18px;margin-bottom:16px}h2{font-size:16px;margin:0 0 14px}p{line-height:1.7;font-size:14px}input,button,select{font:inherit;border:1px solid #435268;border-radius:7px;padding:10px;background:#101820;color:inherit}input{width:100%;margin:6px 0 10px}button{cursor:pointer}button:hover{border-color:#56d6bb}button.primary{background:#256a5d;border-color:#56d6bb}button:disabled{opacity:.5;cursor:default}.row{display:flex;gap:8px;align-items:center}.status{font-size:14px;padding:12px;background:#102c29;border-radius:8px;margin:12px 0;white-space:pre-wrap}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}.stat{padding:14px;background:#19212c;border:1px solid #2d3949;border-radius:10px}.stat b{display:block;font-size:24px;color:#65debd}.stat span{font-size:12px;color:#aab9ca}canvas{width:100%;height:500px;display:block;touch-action:none;background:radial-gradient(ellipse at center,#253343,#121a23);border-radius:12px}#overlay{max-width:100%;max-height:260px;border-radius:10px;display:none}#exports{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}a{color:#74e5cd}.label{font-size:12px;text-transform:uppercase;letter-spacing:2px;color:#91a2b7;margin-bottom:8px}.error{color:#ffb6a6}select{width:100%}#coverage{display:flex;gap:5px;margin:12px 0}#coverage i{height:10px;flex:1;background:#31404e;border-radius:4px}#coverage i.on{background:#56d6bb}@media(max-width:850px){main{grid-template-columns:1fr}canvas{height:350px}header{padding:16px}.stats{grid-template-columns:repeat(2,1fr)}}
+</style>
+<header><div><div class="label">CAPTURE → RECONSTRUCT → EXPORT</div><h1>Quest3<span>Space</span></h1></div><small id="connection">正在连接 PC 服务…</small></header>
+<main><aside>
+<section><h2>连接与配对</h2><label>配对码<input id="token" autocomplete="off" placeholder="PC 本地页面自动显示"></label><button class="primary" id="pair">连接</button><p id="addresses" class="muted"></p><p id="storage" class="muted"></p></section>
+<section><h2>扫描记录</h2><select id="sessions"><option value="">等待扫描</option></select><div id="sessionInfo" class="status">在 Quest 应用中开始扫描。</div><button id="finish" disabled>结束并导出模型</button><div id="exports"></div></section>
+<section><h2>PC 后台迭代精修</h2><p>扫描同时按批次精修，完成后发布新版本。至少 24 个有效帧、3 个方位；新增 16 帧且间隔至少 30 秒才启动下一轮。旧版本在处理期间仍可使用。</p><label><input type="checkbox" id="iterate" style="width:auto"> 扫描中自动迭代</label><br><label><input type="checkbox" id="refined" checked style="width:auto"> 优先显示最新精修模型</label><p class="muted">可在主预览切换照片纹理、精修网格与即时模型。精修过程中保留上一版，尚无精修结果时显示即时模型。</p><button id="offline" disabled>结束后完整精修</button><div id="offlineStatus" class="status">等待扫描状态。</div><div id="offlineExports"></div></section>
+<section><h2>Quest 3 深度扫描</h2><p>使用 Meta XR SDK、MRUK 和 OpenXR。无需定位板：用右手柄握把放置扫描框，框住物件，底部略高于桌面。</p><p><b>A</b> 开始 / 继续 · <b>B</b> 暂停<br><b>X</b> 完成并导出 · <b>Y</b> 重置面板位置<br>手柄射线 + 扳机点击面板按钮。</p><p>物件保持静止，缓慢绕行并改变高度。方位覆盖只表示拍摄方向；未看见的表面仍可能缺失。</p><p class="muted">使用环境深度融合实测表面，精度取决于 Quest 深度数据。透明、反光和过细结构可能缺失。模型保留未观测的孔洞。</p><details><summary>备用：定位板轮廓扫描</summary><p>定位板方案需要白色背景与有明显颜色差异的物件，只恢复轮廓外形。</p><a href="/board.svg" target="_blank">打开 A4 定位板 ↗</a></details></section>
+</aside><div>
+<div class="stats"><div class="stat"><b id="received">0</b><span>已接收原图</span></div><div class="stat"><b id="accepted">0</b><span>有效视角</span></div><div class="stat"><b id="coverageValue">0/12</b><span>方位覆盖（非表面完整度）</span></div><div class="stat"><b id="pending">0</b><span>待处理</span></div></div>
+<section><div class="row" style="justify-content:space-between"><h2>模型预览</h2><small>拖动旋转 · 滚轮缩放</small></div><select id="previewMode" aria-label="预览模式" style="margin-bottom:12px"><option value="photo">精修模型 · 照片纹理</option><option value="quality">精修模型 · 网格颜色</option><option value="live">即时模型</option></select><div id="coverage"></div><canvas id="model"></canvas><p id="meshInfo" class="muted">收到有效视角后显示模型。空白预览不代表重建完成。</p></section>
+<section><h2>最近有效测量</h2><img id="overlay" alt="绿色区域表示本帧参与融合的表面"><p class="muted">绿色显示参与融合的表面采样。检查扫描框是否包含桌面或背景；必要时结束本次扫描并重新放置扫描框。</p><div id="error" class="error" role="alert"></div></section>
+</div></main>
+<script>
+const $=id=>document.getElementById(id);let token=localStorage.getItem('scanToken')||'',sid='',mesh=null,revision=-1,overlayUrl='',busy=false;
+const fragment=new URLSearchParams(location.hash.slice(1));if(fragment.has('token')){token=fragment.get('token');history.replaceState(null,'',location.pathname)}$('token').value=token;
+let yaw=.6,pitch=.5,zoom=1,drag=null;
+async function api(path,options={}){const r=await fetch(path,{...options,headers:{'X-Scan-Token':token,...options.headers}});if(!r.ok){let d=await r.json().catch(()=>({detail:r.statusText}));throw Error(d.detail||r.status)}return r}
+function error(e){$('error').textContent=String(e.message||e)}
+function scanDate(s){return Number.isFinite(s.created_at)?new Date(s.created_at*1000).toLocaleString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}):'日期未知'}
+async function bootstrap(){try{const r=await fetch('/api/bootstrap');if(r.ok){const d=await r.json();if(!token){token=d.token;$('token').value=token;localStorage.setItem('scanToken',token)}$('addresses').textContent='Quest 连接地址：\n'+d.addresses.map(a=>'http://'+a+':'+location.port).join('\n');$('storage').textContent='数据目录：'+d.root+' · 可用 '+d.free_gib+' GiB'}}catch(e){error(e)}}
+$('pair').onclick=()=>{token=$('token').value.trim().toUpperCase();localStorage.setItem('scanToken',token);refresh()};
+$('sessions').onchange=()=>{sid=$('sessions').value;revision=-1;mesh=null;draw();update()};
+$('finish').onclick=async()=>{if(!sid)return;try{await api('/api/sessions/'+sid+'/finish',{method:'POST'});await update()}catch(e){error(e)}};
+$('offline').onclick=async()=>{if(!sid)return;try{$('offline').disabled=true;await api('/api/sessions/'+sid+'/offline',{method:'POST'});await update()}catch(e){error(e);$('offline').disabled=false}};
+$('iterate').onchange=async()=>{try{await api('/api/iteration',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:$('iterate').checked})});await update()}catch(e){error(e)}};
+$('refined').onchange=()=>{revision=-1;update().catch(error)};
+$('previewMode').onchange=()=>{revision=-1;update().catch(error)};
+async function offlineStatus(s){try{const j=await(await api('/api/sessions/'+s.id+'/offline')).json();$('iterate').checked=j.iteration_enabled;$('iterate').disabled=!j.iteration_available;$('offline').disabled=s.status!=='complete'||s.method!=='depth-tsdf'||j.status==='running';const labels={none:'尚未精修；继续扫描以积累有效视角。',running:'PC 正在处理固定快照，扫描继续接收新帧。',complete:'精修版本已发布。未观测区域仍可能缺失。',failed:'本轮精修失败，上一版及原扫描保留。',interrupted:'处理被中断，中间文件保留，可重新运行。'};$('offlineStatus').textContent=(labels[j.status]||j.status)+(j.iterative?'\n本轮快照：'+j.source_frames+' 个有效帧':'')+(j.available_run?'\n可用版本：'+j.available_run+' · '+(j.available_frames??'历史')+' 帧':'')+(j.pending_frames?'\n最新待处理批次：'+j.pending_frames+' 帧':'')+(j.error?'\n'+j.error:'');renderExports(j.files||[],'offlineExports');return j}catch(e){$('offlineStatus').textContent='无法读取精修状态：'+e.message;return null}}
+async function refresh(){if(!token)return;try{const list=await (await api('/api/sessions')).json();$('connection').textContent='PC 服务已连接';const select=$('sessions'),previous=sid;select.replaceChildren();for(const s of list){const o=document.createElement('option');o.value=s.id;o.textContent=scanDate(s)+' · '+s.status+' · '+s.id;select.append(o)}if(list.length){sid=list.some(s=>s.id===previous)?previous:list[0].id;select.value=sid;if(previous!==sid){revision=-1;mesh=null}}else sid='';await update();$('error').textContent=''}catch(e){$('connection').textContent='连接失败';error(e)}}
+async function update(){if(!sid)return;let s;try{s=await(await api('/api/sessions/'+sid)).json()}catch(e){$('sessionInfo').textContent='历史扫描：原图保存在 PC 数据目录。服务重启后请开始新的扫描。';$('finish').disabled=true;await loadExportsFromHistory();return}
+$('received').textContent=s.received;$('accepted').textContent=s.accepted;$('coverageValue').textContent=s.coverage_bins+'/12';$('pending').textContent=s.received-s.processed;$('sessionInfo').textContent='创建时间：'+scanDate(s)+'（本地时间）\n'+s.status+'\n'+s.hint;$('finish').disabled=s.status!=='scanning';$('coverage').replaceChildren();for(let i=0;i<12;i++){let e=document.createElement('i');e.className=i<s.coverage_bins?'on':'';$('coverage').append(e)}
+const selectedSession=sid,mode=$('previewMode').value,job=await offlineStatus(s),refinement=$('refined').checked&&mode!=='live'&&job?.available_run,viewRevision=selectedSession+':'+(refinement?'quality:'+job.available_run+':'+mode:'live:'+s.accepted);
+if(viewRevision!==revision){
+let next,note='',photo=refinement&&mode==='photo';
+const path='/api/sessions/'+selectedSession+'/preview';
+try{next=await(await api(path+(refinement?'?run='+encodeURIComponent(job.available_run)+(photo?'&textured=true':''):''))).json()}
+catch(e){if(!photo)throw e;next=await(await api(path+'?run='+encodeURIComponent(job.available_run))).json();note=' · 照片纹理暂不可用，显示精修网格';photo=false}
+if(sid!==selectedSession||$('previewMode').value!==mode)return;
+if(!await setPreview(next,selectedSession,mode))return;revision=viewRevision;
+$('meshInfo').textContent=(mesh.faces?.length||0)+' 个三角面 · 单位：米 · '+(refinement?(photo?'照片纹理精修模型':'精修网格')+' · '+job.available_run:s.method==='depth-tsdf'?'即时深度融合':'轮廓粗模')+(!refinement&&mode!=='live'?' · 等待精修结果':'')+note;
+if(s.accepted&&!s.archived){try{const blob=await(await api('/api/sessions/'+selectedSession+'/overlay')).blob();if(sid!==selectedSession)return;if(overlayUrl)URL.revokeObjectURL(overlayUrl);overlayUrl=URL.createObjectURL(blob);$('overlay').src=overlayUrl;$('overlay').style.display='block'}catch(e){$('overlay').style.display='none'}}else $('overlay').style.display='none'}
+
+renderExports(s.exports||[]);if(s.error)error(s.error)}
+async function loadExportsFromHistory(){try{const list=await(await api('/api/sessions')).json();renderExports(list.find(s=>s.id===sid)?.exports||[])}catch(e){error(e)}}
+function renderExports(files,target='exports'){$(target).replaceChildren();for(const path of files){const b=document.createElement('button');b.textContent=path.split('/').pop();b.onclick=async()=>{try{const blob=await(await api(path)).blob(),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=b.textContent;a.click();setTimeout(()=>URL.revokeObjectURL(url),2000)}catch(e){error(e)}};$(target).append(b)}}
+const c=$('model'),gl=c.getContext('webgl',{antialias:true,alpha:true});
+let program,buffer,texture,vertexCount=0,center=[0,0,0],extent=1;
+if(gl){
+function shader(type,source){const sh=gl.createShader(type);gl.shaderSource(sh,source);gl.compileShader(sh);if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(sh));return sh}
+program=gl.createProgram();gl.attachShader(program,shader(gl.VERTEX_SHADER,`
+attribute vec3 position;attribute vec2 uv;attribute vec3 color;
+uniform vec3 center;uniform vec4 view;uniform vec2 scale;
+varying vec2 texCoord;varying vec3 tint;
+void main(){vec3 p=position-center;float a=view.x*p.x-view.y*p.y;float b=view.y*p.x+view.x*p.y;
+gl_Position=vec4(a*scale.x,(view.w*b+view.z*p.z)*scale.y,-(view.z*b-view.w*p.z)*scale.x*.1,1.);texCoord=uv;tint=color;}`));
+gl.attachShader(program,shader(gl.FRAGMENT_SHADER,`precision mediump float;uniform sampler2D photo;uniform bool textured;varying vec2 texCoord;varying vec3 tint;void main(){gl_FragColor=textured?texture2D(photo,texCoord):vec4(tint,1.);}`));gl.linkProgram(program);if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program));
+buffer=gl.createBuffer();texture=gl.createTexture();gl.useProgram(program);gl.enable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);
+}
+async function setPreview(next,selectedSession,selectedMode){
+if(!gl){$('meshInfo').textContent='浏览器不支持 WebGL，无法显示 3D 预览。';throw Error('浏览器不支持 WebGL')}
+let image=null;if(next.texture_jpeg){image=new Image();image.src='data:image/jpeg;base64,'+next.texture_jpeg;await image.decode()}
+if(sid!==selectedSession||$('previewMode').value!==selectedMode)return false;
+if(!next.vertices||!next.faces)throw Error('模型预览数据不完整');
+mesh=next;vertexCount=next.faces.length*3;const data=new Float32Array(vertexCount*8);
+let min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];
+for(const v of next.vertices)for(let k=0;k<3;k++){min[k]=Math.min(min[k],v[k]);max[k]=Math.max(max[k],v[k])}
+center=min.map((v,k)=>(v+max[k])/2);extent=Math.max(...max.map((v,k)=>v-min[k]),.05);
+let offset=0;for(let f=0;f<next.faces.length;f++)for(const id of next.faces[f]){const v=next.vertices[id],uv=next.uv?.[id]||[0,0],col=next.colors?.[f]||[77,205,175];data.set([...v,...uv,...col.map(x=>x/255)],offset);offset+=8}
+gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,data,gl.STATIC_DRAW);
+for(const [name,size,offset] of [['position',3,0],['uv',2,12],['color',3,20]]){const loc=gl.getAttribLocation(program,name);gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,size,gl.FLOAT,false,32,offset)}
+gl.bindTexture(gl.TEXTURE_2D,texture);if(image){gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,image)}else gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([255,255,255,255]));
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+gl.uniform1i(gl.getUniformLocation(program,'textured'),!!image);draw();return true;
+}
+function draw(){if(!gl)return;const dpr=Math.min(devicePixelRatio||1,2),w=c.clientWidth,h=c.clientHeight;c.width=w*dpr;c.height=h*dpr;gl.viewport(0,0,c.width,c.height);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);if(!mesh?.vertices?.length)return;gl.useProgram(program);gl.uniform3fv(gl.getUniformLocation(program,'center'),center);gl.uniform4f(gl.getUniformLocation(program,'view'),Math.cos(yaw),Math.sin(yaw),Math.cos(pitch),Math.sin(pitch));const k=Math.min(w,h)*1.4*zoom/extent;gl.uniform2f(gl.getUniformLocation(program,'scale'),k/w,k/h);gl.drawArrays(gl.TRIANGLES,0,vertexCount)}
+c.onpointerdown=e=>{drag=[e.clientX,e.clientY];c.setPointerCapture(e.pointerId)};c.onpointerup=()=>drag=null;c.onpointercancel=()=>drag=null;c.onpointermove=e=>{if(!drag)return;yaw+=(e.clientX-drag[0])*.01;pitch=Math.max(-1.5,Math.min(1.5,pitch+(e.clientY-drag[1])*.01));drag=[e.clientX,e.clientY];draw()};c.onwheel=e=>{e.preventDefault();zoom=Math.max(.2,Math.min(4,zoom*Math.exp(-e.deltaY*.001)));draw()};window.onresize=draw;
+bootstrap().then(refresh);setInterval(async()=>{if(busy)return;busy=true;try{await refresh()}catch(e){error(e)}finally{busy=false}},2500);draw();
+</script></html>

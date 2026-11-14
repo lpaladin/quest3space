@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="space.quest3.scanner" android:versionCode="1" android:versionName="0.1.0">
+    <uses-sdk android:minSdkVersion="32" android:targetSdkVersion="35"/>
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-permission android:name="horizonos.permission.HEADSET_CAMERA"/>
+    <uses-feature android:name="android.hardware.camera.any" android:required="false"/>
+    <application android:label="Quest3Space Scanner" android:theme="@android:style/Theme.Material.NoActionBar" android:allowBackup="false" android:usesCleartextTraffic="true" android:supportsRtl="true">
+        <meta-data android:name="com.oculus.supportedDevices" android:value="quest3|quest3s"/>
+        <meta-data android:name="com.oculus.feature.PASSTHROUGH" android:value="required"/>
+        <activity android:name=".MainActivity" android:exported="true" android:resizeableActivity="true" android:configChanges="orientation|screenSize|keyboardHidden" android:screenOrientation="landscape">
+            <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+        </activity>
+    </application>
+</manifest>
