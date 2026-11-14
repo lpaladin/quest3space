@@ -38,7 +38,9 @@ public class QuestScanner : MonoBehaviour
     private float side=.3f;
     private Text status,mainProgress,details;
     private Image mainProgressFill,worldProgressFill;
-    private Transform settingsPanel;
+    private Transform settingsPanel,errorDialog;
+    private Text errorBody;
+    private bool ErrorVisible=>errorDialog&&errorDialog.gameObject.activeSelf;
     private bool settingsOpen;
     private Button connectButton,newButton,placeButton,planeStartButton,planePlaceButton,planeDeleteButton,startButton,pauseButton,finishButton,settingsButton,sizeButton;
     private InputField addressInput,tokenInput;
@@ -188,12 +190,35 @@ public class QuestScanner : MonoBehaviour
         worldProgressFill=ProgressBar(progressPanel,false);
         planeRegion=new GameObject("Plane region").AddComponent<PlaneRegion>();planeRegion.Initialize(Rig.rightControllerAnchor,VertexColorShader);
         if(!UiDepthShader)throw new Exception("UI depth shader missing");
-        uiDepthMaterial=new Material(UiDepthShader);
+        uiDepthMaterial=new Material(UiDepthShader);BuildErrorDialog();
         foreach(var graphic in panel.GetComponentsInChildren<Graphic>(true))graphic.material=uiDepthMaterial;
         foreach(var graphic in progressPanel.GetComponentsInChildren<Graphic>(true))graphic.material=uiDepthMaterial;
+        foreach(var graphic in errorDialog.GetComponentsInChildren<Graphic>(true))graphic.material=uiDepthMaterial;
         Recenter();DrawBox();
     }
-    private void Recenter(){var head=Rig.centerEyeAnchor;Vector3 forward=Vector3.ProjectOnPlane(head.forward,Vector3.up).normalized;if(forward.sqrMagnitude<.1f)forward=Vector3.forward;panel.position=head.position+forward*1.15f-Vector3.up*.12f;panel.rotation=Quaternion.LookRotation(forward,Vector3.up);PositionPreview();}
+    private void Recenter(){var head=Rig.centerEyeAnchor;Vector3 forward=Vector3.ProjectOnPlane(head.forward,Vector3.up).normalized;if(forward.sqrMagnitude<.1f)forward=Vector3.forward;panel.position=head.position+forward*1.15f-Vector3.up*.12f;panel.rotation=Quaternion.LookRotation(forward,Vector3.up);if(ErrorVisible)PositionErrorDialog();PositionPreview();}
+    private void BuildErrorDialog()
+    {
+        var go=new GameObject("Scan error dialog",typeof(RectTransform),typeof(Canvas),typeof(Image),typeof(VerticalLayoutGroup));errorDialog=go.transform;
+        var canvas=go.GetComponent<Canvas>();canvas.renderMode=RenderMode.WorldSpace;canvas.worldCamera=Rig.centerEyeAnchor.GetComponent<Camera>();canvas.overrideSorting=true;canvas.sortingOrder=100;
+        var rect=go.GetComponent<RectTransform>();rect.sizeDelta=new Vector2(700,420);rect.localScale=Vector3.one*.00085f;
+        go.GetComponent<Image>().color=new Color(.14f,.035f,.04f,.98f);
+        var layout=go.GetComponent<VerticalLayoutGroup>();layout.padding=new RectOffset(22,22,18,18);layout.spacing=12;layout.childForceExpandHeight=false;layout.childForceExpandWidth=true;
+        Label(errorDialog,"Cannot start scan",28).GetComponent<LayoutElement>().preferredHeight=44;
+        errorBody=Label(errorDialog,"",22);errorBody.supportRichText=false;errorBody.GetComponent<LayoutElement>().preferredHeight=248;
+        Button(errorDialog,"OK (A / B)",DismissError);
+        var blocker=go.AddComponent<BoxCollider>();blocker.size=new Vector3(700,420,1);blocker.center=new Vector3(0,0,3);
+        go.SetActive(false);
+    }
+    private void PositionErrorDialog(){if(!errorDialog)return;var head=Rig.centerEyeAnchor;errorDialog.SetPositionAndRotation(head.position+head.forward*.8f,head.rotation);}
+    private void ShowStartError(string reason)
+    {
+        message=reason;boxFollowing=boxScaling=false;
+        errorBody.text=reason.Length>650?reason.Substring(0,650)+"…":reason;
+        PositionErrorDialog();errorDialog.gameObject.SetActive(true);
+        Debug.LogWarning("QUEST3SPACE_SCAN_BLOCKED "+reason.Replace("\n"," | "));
+    }
+    private void DismissError(){if(errorDialog)errorDialog.gameObject.SetActive(false);}
     private Image ProgressBar(Transform parent,bool layout)
     {
         var bg=new GameObject("Progress track",typeof(RectTransform),typeof(Image));bg.transform.SetParent(parent,false);bg.GetComponent<Image>().color=new Color(.13f,.2f,.24f);bg.GetComponent<Image>().raycastTarget=false;
@@ -218,7 +243,7 @@ public class QuestScanner : MonoBehaviour
         planePlaceButton.gameObject.SetActive(editing&&openPlanes);
         planeDeleteButton.gameObject.SetActive(editing&&planes&&planeRegion.Count>0);
         startButton.gameObject.SetActive(!scanning&&!finishing&&!creating&&!resetting&&(active||(editing&&boxPlaced&&!openPlanes)));
-        startButton.interactable=connected&&CameraAccess.IsPlaying&&DepthManager.IsDepthAvailable&&imageVerified&&!boxFollowing&&!boxScaling&&WorldCoordinatesReady;
+        startButton.interactable=true; // Always explain rejected start attempts in the modal.
         placeButton.interactable=planeStartButton.interactable=planePlaceButton.interactable=WorldCoordinatesReady;
         pauseButton.gameObject.SetActive(scanning&&!finishing);
         finishButton.gameObject.SetActive(active&&!finishing&&!creating&&!resetting);
@@ -347,16 +372,19 @@ public class QuestScanner : MonoBehaviour
         UpdateScanFeedback();
         if(lastRgb!=CameraAccess.IsPlaying||lastDepth!=DepthManager.IsDepthAvailable){lastRgb=CameraAccess.IsPlaying;lastDepth=DepthManager.IsDepthAvailable;Debug.Log($"QUEST3SPACE_SENSORS rgb={lastRgb} depth={lastDepth}");}
         if(CameraAccess.IsPlaying&&!scanning&&!capturing&&Time.unscaledTime-lastProbe>2){lastProbe=Time.unscaledTime;ProbeCamera();}
-        if(OVRInput.GetDown(OVRInput.Button.One)){if(planeRegion.Active&&!planeRegion.Closed)PlaceRegionPlane();else StartCoroutine(Begin());}
-        if(OVRInput.GetDown(OVRInput.Button.Two)){if(planeRegion.Active&&string.IsNullOrEmpty(session)&&!creating)DeleteRegionPlane();else{scanning=false;message="Paused";}}
-        if(OVRInput.GetDown(OVRInput.Button.Three))Finish();
+        bool errorWasVisible=ErrorVisible;
+        if(errorWasVisible){if(OVRInput.GetDown(OVRInput.Button.One)||OVRInput.GetDown(OVRInput.Button.Two))DismissError();}
+        else if(OVRInput.GetDown(OVRInput.Button.One)){if(planeRegion.Active&&!planeRegion.Closed)PlaceRegionPlane();else StartCoroutine(Begin());}
+        if(!errorWasVisible&&OVRInput.GetDown(OVRInput.Button.Two)){if(planeRegion.Active&&string.IsNullOrEmpty(session)&&!creating)DeleteRegionPlane();else{scanning=false;message="Paused";}}
+        if(!errorWasVisible&&OVRInput.GetDown(OVRInput.Button.Three))Finish();
         if(OVRInput.GetDown(OVRInput.Button.Four))Recenter();
         bool rightHeld=OVRInput.Get(OVRInput.Button.PrimaryHandTrigger,OVRInput.Controller.RTouch);
-        if(planeRegion.Active){planeRegion.Preview(string.IsNullOrEmpty(session)&&!creating);if(planeGripHeld&&!rightHeld&&string.IsNullOrEmpty(session)&&!creating)PlaceRegionPlane();planeGripHeld=rightHeld;}
+        if(ErrorVisible||errorWasVisible){boxFollowing=boxScaling=false;planeGripHeld=rightHeld;}
+        else if(planeRegion.Active){planeRegion.Preview(string.IsNullOrEmpty(session)&&!creating);if(planeGripHeld&&!rightHeld&&string.IsNullOrEmpty(session)&&!creating)PlaceRegionPlane();planeGripHeld=rightHeld;}
         else if(rightHeld&&WorldCoordinatesReady&&string.IsNullOrEmpty(session)&&!creating&&!resetting){boxFollowing=true;PlaceBox();}
         else if(boxFollowing){boxFollowing=false;RebuildVertices();Debug.Log("QUEST3SPACE_BOX_LOCK position="+origin+" rotation="+boxRotation);}
         else if(rightHeld&&OVRInput.GetDown(OVRInput.Button.PrimaryHandTrigger,OVRInput.Controller.RTouch))message="Finish the active scan before moving its box.";
-        bool resizing=held&&CanResizeBox;
+        bool resizing=held&&CanResizeBox&&!ErrorVisible;
         if(resizing){
             float distance=Vector3.Distance(Rig.leftControllerAnchor.position,origin);
             if(!boxScaling){boxScaleStartDistance=Mathf.Max(.05f,distance);boxScaleStartSide=side;boxScaling=true;Debug.Log("QUEST3SPACE_BOX_RESIZE start side="+side);}
@@ -368,12 +396,12 @@ public class QuestScanner : MonoBehaviour
         Button pointed=null;
         if(Physics.Raycast(r,out var hit,3)){end=hit.point;pointed=hit.collider.GetComponent<Button>();if(OVRInput.GetDown(OVRInput.Button.PrimaryIndexTrigger,OVRInput.Controller.RTouch)){
             var pointer=new PointerEventData(EventSystem.current){button=PointerEventData.InputButton.Left};
-            if(hit.collider.GetComponent<Button>() is Button b&&b.interactable&&b.isActiveAndEnabled)b.onClick.Invoke();
-            else if(hit.collider.GetComponent<InputField>() is InputField f){f.Select();f.ActivateInputField();}
+            if(hit.collider.GetComponent<Button>() is Button b&&b.interactable&&b.isActiveAndEnabled&&(!ErrorVisible||b.transform.IsChildOf(errorDialog)))b.onClick.Invoke();
+            else if(!ErrorVisible&&hit.collider.GetComponent<InputField>() is InputField f){f.Select();f.ActivateInputField();}
         }}Hover(pointed);ray.startColor=ray.endColor=pointed?ButtonHover:new Color(.3f,1,.8f);ray.SetPosition(0,r.origin);ray.SetPosition(1,end);
         if(status&&Time.unscaledTime>=nextStatus){nextStatus=Time.unscaledTime+.25f;RefreshControls();status.text=$"PC {(connected?"OK":"OFFLINE")} | RGB {(CameraAccess.IsPlaying&&imageVerified?"OK":"WAIT")} | Depth {(DepthManager.IsDepthAvailable?"OK":"WAIT")}\nWorld lock {(WorldCoordinatesReady?"OK":"WAIT")} | Upload queue: {pendingDisplay}";}
         perfFrames++;perfWorst=Mathf.Max(perfWorst,Time.unscaledDeltaTime);if(Time.unscaledDeltaTime>.025f)perfSlow++;
-        if(Time.unscaledTime-perfStart>=10){Debug.Log($"QUEST3SPACE_PERF fps={perfFrames/(Time.unscaledTime-perfStart):F1} slow25ms={perfSlow} worstMs={perfWorst*1000:F1} scanning={scanning} occlusion={DepthManager.OcclusionShadersMode} depth={DepthManager.IsDepthAvailable} softKeyword={Shader.IsKeywordEnabled("SOFT_OCCLUSION")} removeHands={DepthManager.RemoveHands}");foreach(var helper in controllerVisuals){var visual=helper.m_controller==OVRInput.Controller.LTouch?helper.m_modelMetaTouchPlusLeftController:helper.m_modelMetaTouchPlusRightController;Debug.Log("QUEST3SPACE_CONTROLLER hand="+helper.m_controller+" touchPlusVisible="+(visual&&visual.activeInHierarchy)+" depthCue=on uiOcclusion="+(uiDepthMaterial!=null));}perfFrames=perfSlow=0;perfWorst=0;perfStart=Time.unscaledTime;}
+        if(Time.unscaledTime-perfStart>=10){Debug.Log($"QUEST3SPACE_PERF fps={perfFrames/(Time.unscaledTime-perfStart):F1} slow25ms={perfSlow} worstMs={perfWorst*1000:F1} scanning={scanning} occlusion={DepthManager.OcclusionShadersMode} depth={DepthManager.IsDepthAvailable} softKeyword={Shader.IsKeywordEnabled("SOFT_OCCLUSION")} removeHands={DepthManager.RemoveHands}");foreach(var helper in controllerVisuals){var visual=helper.m_controller==OVRInput.Controller.LTouch?helper.m_modelMetaTouchPlusLeftController:helper.m_modelMetaTouchPlusRightController;Debug.Log("QUEST3SPACE_CONTROLLER hand="+helper.m_controller+" touchPlusVisible="+(visual&&visual.activeInHierarchy)+" depthCue=on uiOcclusion=off");}perfFrames=perfSlow=0;perfWorst=0;perfStart=Time.unscaledTime;}
         if(connected&&(!string.IsNullOrEmpty(session)||!string.IsNullOrEmpty(completed))&&Time.unscaledTime-lastPoll>2&&!polling){lastPoll=Time.unscaledTime;StartCoroutine(Poll());}
     }
     private UnityWebRequest Request(string method,string path,byte[] body=null)
@@ -409,14 +437,15 @@ public class QuestScanner : MonoBehaviour
     }
     private IEnumerator Begin()
     {
-        if(!WorldCoordinatesReady){message="Wait for world lock / tracking to settle.";yield break;}
-        if(!connected||creating||resetting){message="Connect PC first / wait for current request";yield break;}
-        if(finishing){message="Waiting for last scan to finish";yield break;}
-        if(!CameraAccess.IsPlaying||!DepthManager.IsDepthAvailable){message="Wait for camera/depth. Check system permissions.";yield break;}
-        if(!imageVerified){message="Camera pixels not verified yet; wait for RGB ready.";yield break;}
-        if(!boxPlaced){message="Place the scan box first using the right grip.";yield break;}
-        if(planeRegion.Active&&!planeRegion.Closed){message="Place planes until a finite region encloses the start point.";yield break;}
-        if(boxFollowing||boxScaling||OVRInput.Get(OVRInput.Button.PrimaryHandTrigger,OVRInput.Controller.RTouch)||(!planeRegion.Active&&OVRInput.Get(OVRInput.Button.PrimaryHandTrigger,OVRInput.Controller.LTouch))){message="Release BOTH GRIPS to lock the box before scanning.";yield break;}
+        Debug.Log($"QUEST3SPACE_SCAN_ATTEMPT pc={connected} world={WorldCoordinatesReady} rgb={CameraAccess.IsPlaying} pixels={imageVerified} depth={DepthManager.IsDepthAvailable} box={boxPlaced} following={boxFollowing} scaling={boxScaling} session={session}");
+        if(!WorldCoordinatesReady){ShowStartError("World lock is not ready.\nLook at a fixed, well-lit room surface and wait for World lock OK.\nAfter resetting view, wait briefly before starting.");yield break;}
+        if(!connected||creating||resetting){ShowStartError(!connected?"PC is not connected.\nUse Reconnect PC. Keep PC and Quest on the same Wi-Fi, with the PC service running.":"A session request is still in progress.\nWait for it to finish, then try again.");yield break;}
+        if(finishing){ShowStartError("The previous scan is still saving.\nWait for pending uploads and PC export to finish.");yield break;}
+        if(!CameraAccess.IsPlaying||!DepthManager.IsDepthAvailable){ShowStartError("Camera or environment depth is not ready.\nWear the headset and return to this app.\nCheck camera and spatial-data permissions; wait for RGB and Depth OK.");yield break;}
+        if(!imageVerified){ShowStartError("Camera image is not ready yet.\nLook at a well-lit surface and wait for RGB OK.\nUniform or empty camera frames cannot be scanned.");yield break;}
+        if(!boxPlaced){ShowStartError("No scan region is placed.\nHold RGrip to place the box. LGrip resizes it.\nRelease both grips, then press A.");yield break;}
+        if(planeRegion.Active&&!planeRegion.Closed){ShowStartError("The plane region is still open.\nAdd planes until they enclose the start point, or switch to BOX mode.");yield break;}
+        if(OVRInput.Get(OVRInput.Button.PrimaryHandTrigger,OVRInput.Controller.RTouch)||(!planeRegion.Active&&OVRInput.Get(OVRInput.Button.PrimaryHandTrigger,OVRInput.Controller.LTouch))){ShowStartError("Release BOTH GRIP buttons, then press A.\nRGrip moves the box; LGrip resizes it.\nThe region must be locked before capture can start.");yield break;}
         if(!string.IsNullOrEmpty(session)){scanning=true;yield break;}
         creating=true;
         PlayerPrefs.SetFloat("boxQx",boxRotation.x);PlayerPrefs.SetFloat("boxQy",boxRotation.y);PlayerPrefs.SetFloat("boxQz",boxRotation.z);PlayerPrefs.SetFloat("boxQw",boxRotation.w);
@@ -424,8 +453,8 @@ public class QuestScanner : MonoBehaviour
         if(planeRegion.Active){body["planes"]=planeRegion.Json();body["region_seed"]=new JArray(planeRegion.Seed.x,planeRegion.Seed.y,planeRegion.Seed.z);}
         using(var req=Request("POST","/api/sessions",Encoding.UTF8.GetBytes(body.ToString(Formatting.None)))){
             yield return req.SendWebRequest();
-            if(req.result==UnityWebRequest.Result.Success){try{session=(string)JObject.Parse(req.downloadHandler.text)["id"];completed="";acceptedFrames=coverageDirections=0;previewOrigin=origin;previewId="";previewRun="";if(model.sharedMesh){Destroy(model.sharedMesh);model.sharedMesh=null;}RebuildVertices();PositionPreview();PlayerPrefs.SetString("session",session);PlayerPrefs.SetFloat("originX",origin.x);PlayerPrefs.SetFloat("originY",origin.y);PlayerPrefs.SetFloat("originZ",origin.z);PlayerPrefs.SetFloat("side",side);PlayerPrefs.Save();scanning=true;message="Scanning";Debug.Log("QUEST3SPACE_SCAN_START "+session);}catch(Exception e){message=e.Message;}}
-            else message="Create scan failed: "+req.downloadHandler.text;
+            if(req.result==UnityWebRequest.Result.Success){try{session=(string)JObject.Parse(req.downloadHandler.text)["id"];completed="";acceptedFrames=coverageDirections=0;previewOrigin=origin;previewId="";previewRun="";if(model.sharedMesh){Destroy(model.sharedMesh);model.sharedMesh=null;}RebuildVertices();PositionPreview();PlayerPrefs.SetString("session",session);PlayerPrefs.SetFloat("originX",origin.x);PlayerPrefs.SetFloat("originY",origin.y);PlayerPrefs.SetFloat("originZ",origin.z);PlayerPrefs.SetFloat("side",side);PlayerPrefs.Save();scanning=true;message="Scanning";Debug.Log("QUEST3SPACE_SCAN_START "+session);}catch(Exception e){ShowStartError("Could not initialize the scan.\n"+e.Message);}}
+            else ShowStartError($"PC could not create the scan (HTTP {req.responseCode}).\n"+(string.IsNullOrWhiteSpace(req.downloadHandler.text)?req.error:req.downloadHandler.text)+"\nCheck PC connection / pairing and try again.");
         }creating=false;
     }
     private void Finish(){if(string.IsNullOrEmpty(session)){message="No active scan";return;}scanning=false;finishing=true;PlayerPrefs.SetInt("finishing",1);PlayerPrefs.Save();message="Uploading remaining frames, then exporting…";}

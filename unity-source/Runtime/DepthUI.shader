@@ -15,9 +15,9 @@ Shader "Quest3Space/DepthUI"
     }
     SubShader
     {
-        Tags { "Queue"="Transparent" "RenderType"="Transparent" "IgnoreProjector"="True" "CanUseSpriteAtlas"="True" }
+        Tags { "Queue"="Overlay" "RenderType"="Transparent" "IgnoreProjector"="True" "CanUseSpriteAtlas"="True" }
         Stencil { Ref [_Stencil] Comp [_StencilComp] Pass [_StencilOp] ReadMask [_StencilReadMask] WriteMask [_StencilWriteMask] }
-        Cull Off Lighting Off ZWrite Off ZTest [unity_GUIZTestMode]
+        Cull Off Lighting Off ZWrite Off ZTest Always
         Blend One OneMinusSrcAlpha
         ColorMask [_ColorMask]
         Pass
@@ -27,13 +27,11 @@ Shader "Quest3Space/DepthUI"
             #pragma vertex vert
             #pragma fragment frag
             #pragma multi_compile_instancing
-            #pragma multi_compile _ HARD_OCCLUSION SOFT_OCCLUSION
             #pragma multi_compile_local _ UNITY_UI_CLIP_RECT
             #pragma multi_compile_local _ UNITY_UI_ALPHACLIP
             #include "UnityCG.cginc"
             #include "DepthCue.cginc"
             #include "UnityUI.cginc"
-            #include "Packages/com.meta.xr.sdk.core/Shaders/EnvironmentDepth/BiRP/EnvironmentOcclusionBiRP.cginc"
             sampler2D _MainTex;fixed4 _Color,_TextureSampleAdd;float4 _ClipRect;float _EnvironmentDepthBias;
             struct appdata {float4 vertex:POSITION;fixed4 color:COLOR;float2 uv:TEXCOORD0;UNITY_VERTEX_INPUT_INSTANCE_ID};
             struct v2f {float4 position:SV_POSITION;fixed4 color:COLOR;float2 uv:TEXCOORD0;float3 world:TEXCOORD1;float2 local:TEXCOORD2;UNITY_VERTEX_OUTPUT_STEREO};
@@ -49,7 +47,6 @@ Shader "Quest3Space/DepthUI"
                 clip(color.a-.001);
                 #endif
                 color.rgb*=color.a*QuestDepthBrightness(i.world);
-                META_DEPTH_OCCLUDE_OUTPUT_PREMULTIPLY_WORLDPOS(i.world,color,_EnvironmentDepthBias);
                 clip(color.a-.001);return color;
             }
             ENDCG
